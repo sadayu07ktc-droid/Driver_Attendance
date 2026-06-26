@@ -154,7 +154,7 @@ body{font-family:'Sarabun',sans-serif;background:var(--cream);color:var(--text);
 
   <div class="walk-warn" id="walk-warn" style="display:none"></div>
 
-  <p class="hint">📍 ต้องอยู่ในรัศมี <b>500 เมตร</b> จากโรงงาน จึงจะลงเวลาได้<br>กรุณาเปิด <b>ตำแหน่ง (Location)</b> บนมือถือก่อนกดปุ่ม</p>
+  <p class="hint">📍 ต้องอยู่ในรัศมี <b>300 เมตร</b> จากโรงงาน จึงจะลงเวลาได้<br>กรุณาเปิด <b>ตำแหน่ง (Location)</b> บนมือถือก่อนกดปุ่ม</p>
 </div>
 
 <script>
@@ -292,7 +292,7 @@ function _renderStatus(a) {
   }
 }
 
-// ── สร้างแผนที่ + หมุดโรงงาน + วงรัศมี 500 ม. ──
+// ── สร้างแผนที่ + หมุดโรงงาน + วงรัศมี 300 ม. ──
 function _initMap() {
   map = L.map('map', { zoomControl: true, attributionControl: true })
          .setView([factory.lat, factory.lon], 15);
@@ -300,7 +300,7 @@ function _initMap() {
     maxZoom: 19, attribution: '© OpenStreetMap'
   }).addTo(map);
 
-  // วงรัศมี 500 ม.
+  // วงรัศมี 300 ม.
   radiusCircle = L.circle([factory.lat, factory.lon], {
     radius: RADIUS_M, color: '#4A7C3F', weight: 2,
     fillColor: '#4A7C3F', fillOpacity: 0.12
@@ -409,7 +409,11 @@ function _getPosition() {
   });
 }
 
+let _attnBusy = false;   // กันกดซ้ำตอนกำลังส่ง
+
 async function doAttendance(mode) {
+  if (_attnBusy) return;   // กำลังส่งอยู่ → ไม่รับกดซ้ำ
+  _attnBusy = true;
   const overlay = document.getElementById('overlay');
 
   // ใช้ตำแหน่งสดจากแผนที่ก่อน (ตรงกับที่โชว์) — ถ้ายังไม่มีค่อยขอใหม่
@@ -422,6 +426,7 @@ async function doAttendance(mode) {
     } catch (e) {
       overlay.classList.remove('show');
       showResult(false, mode, { error: e.message });
+      _attnBusy = false;
       return;
     }
   }
@@ -442,6 +447,8 @@ async function doAttendance(mode) {
   } catch (e) {
     overlay.classList.remove('show');
     showResult(false, mode, { error: 'เชื่อมต่อไม่ได้ กรุณาลองใหม่' });
+  } finally {
+    _attnBusy = false;   // ปลดล็อกเสมอ
   }
 }
 
