@@ -22,6 +22,7 @@ body{font-family:'Sarabun',sans-serif;background:var(--cream);color:var(--text);
 .hdr-logo{width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:22px}
 .hdr h1{font-size:17px;font-weight:600;color:#fff;margin:0}
 .hdr p{font-size:11px;color:var(--green-l);margin:2px 0 0}
+.hdr-clock{font-size:18px;font-weight:700;color:#fff;font-variant-numeric:tabular-nums;background:rgba(255,255,255,.15);padding:6px 12px;border-radius:10px;letter-spacing:.5px}
 .body{padding:16px;max-width:480px;margin:0 auto}
 .user-card{background:var(--green-l);border:.5px solid var(--border);border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:12px;margin-bottom:14px}
 .uc-avatar{width:46px;height:46px;border-radius:50%;background:var(--green);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0}
@@ -42,6 +43,8 @@ body{font-family:'Sarabun',sans-serif;background:var(--cream);color:var(--text);
 /* ── Map ── */
 .map-card{background:var(--cream3);border:.5px solid var(--border);border-radius:14px;padding:8px;margin-bottom:14px;overflow:hidden}
 #map{width:100%;height:240px;border-radius:10px;background:var(--cream2)}
+.leaflet-pane,.leaflet-top,.leaflet-bottom{z-index:5!important}
+.leaflet-container{z-index:1!important}
 .geo-status{display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;font-weight:600;padding:10px 12px;margin-top:8px;border-radius:10px}
 .geo-status.inside{background:var(--green-pale);color:var(--green-d)}
 .geo-status.outside{background:var(--red-l);color:var(--red)}
@@ -62,12 +65,12 @@ body{font-family:'Sarabun',sans-serif;background:var(--cream);color:var(--text);
 .hint{font-size:12px;color:var(--text-l);text-align:center;line-height:1.7;margin-top:6px;padding:0 8px}
 .hint b{color:var(--text-m)}
 .walk-warn{font-size:13px;font-weight:600;color:var(--orange);background:#FFF4E8;border:1px solid #FCD9B6;border-radius:10px;padding:11px 14px;text-align:center;margin-bottom:6px;line-height:1.6}
-#overlay{display:none;position:fixed;inset:0;background:rgba(245,240,232,.94);z-index:100;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px;text-align:center}
+#overlay{display:none;position:fixed;inset:0;background:rgba(245,240,232,.94);z-index:9998;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px;text-align:center}
 #overlay.show{display:flex}
 .spinner{width:42px;height:42px;border-radius:50%;border:4px solid var(--green-l);border-top-color:var(--green);animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 #overlay p{font-size:15px;color:var(--text-m);font-weight:500}
-#result{display:none;position:fixed;inset:0;background:var(--cream);z-index:200;flex-direction:column;align-items:center;justify-content:center;padding:32px;text-align:center;gap:14px}
+#result{display:none;position:fixed;inset:0;background:var(--cream);z-index:9999;flex-direction:column;align-items:center;justify-content:center;padding:32px;text-align:center;gap:14px}
 #result.show{display:flex}
 .res-icon{font-size:68px}
 .res-title{font-size:24px;font-weight:700}
@@ -101,7 +104,8 @@ body{font-family:'Sarabun',sans-serif;background:var(--cream);color:var(--text);
 
 <div class="hdr">
   <div class="hdr-logo">🕐</div>
-  <div><h1>ลงเวลาเข้า-ออกงาน</h1><p>SSB Smart Supply</p></div>
+  <div style="flex:1"><h1>ลงเวลาเข้า-ออกงาน</h1><p>SSB Smart Supply</p></div>
+  <div class="hdr-clock" id="hdr-clock">--:--:--</div>
 </div>
 
 <div class="body">
@@ -178,6 +182,9 @@ function openHistory() {
 }
 
 async function init() {
+  // ── นาฬิกาเวลาปัจจุบัน ──
+  _startClock();
+
   // ── ส่วนแผนที่ (ไม่ต้องพึ่ง liff — โหลดได้เลย) ──
   _initMapSection();
 
@@ -261,9 +268,28 @@ function _renderStatus(a) {
     document.getElementById('row-hours').style.display = 'flex';
     document.getElementById('st-hours').textContent = a.hours;
   }
-  // ยังไม่เข้างาน → ปุ่มออกงานยังกดไม่ได้ (รอเข้างานก่อน)
-  btnOut.dataset.noCheckin = a.checkIn ? '0' : '1';
-  if (!a.checkIn) btnOut.disabled = true;
+
+  // ── ปุ่มฉลาดตาม suggestMode ที่ระบบส่งมา ──
+  // 'in'  → โชว์ปุ่มเข้า (ก่อนเที่ยง ยังไม่เข้า)
+  // 'out' → โชว์ปุ่มออก (เข้าแล้ว หรือ หลังเที่ยงยังไม่เข้า)
+  // 'done'→ ลงครบแล้ว
+  const sm = a.suggestMode || 'in';
+
+  if (sm === 'done') {
+    // ลงครบ — ปุ่มทั้งคู่ disable (โชว์สถานะแล้ว)
+    btnIn.style.display = a.checkIn ? '' : 'none';
+    btnOut.style.display = '';
+  } else if (sm === 'out') {
+    // ควรเคาะออก → ซ่อนปุ่มเข้า โชว์ปุ่มออก
+    btnIn.style.display = a.checkIn ? '' : 'none';   // ถ้าเข้าแล้วโชว์ (disable), ถ้าไม่เข้าซ่อน
+    btnOut.style.display = '';
+    btnOut.dataset.noCheckin = '0';   // หลังเที่ยง → ออกได้เลย (เข้าว่างไว้ขอทีหลัง)
+    if (!btnOut.dataset.done) btnOut.disabled = !insideZone;
+  } else {
+    // sm === 'in' → ควรเคาะเข้า → โชว์ปุ่มเข้า ซ่อนปุ่มออก
+    btnIn.style.display = '';
+    btnOut.style.display = 'none';
+  }
 }
 
 // ── สร้างแผนที่ + หมุดโรงงาน + วงรัศมี 500 ม. ──
@@ -420,8 +446,10 @@ async function doAttendance(mode) {
 }
 
 function showResult(ok, mode, r) {
-  const isIn = mode === 'in';
-  document.getElementById('res-icon').textContent = ok ? '✅' : '🚫';
+  // ✅ ใช้ผลจริงจาก .gs (r.mode) ไม่ใช่ mode ที่กดปุ่ม — กันย้อนแย้ง
+  const actualMode = (r && r.mode) ? r.mode : mode;
+  const isIn = actualMode === 'in';
+  document.getElementById('res-icon').textContent = ok ? (r && r.noCheckIn ? '⚠️' : '✅') : '🚫';
   const t = document.getElementById('res-title');
   t.textContent = ok ? (isIn ? 'ลงเวลาเข้างานสำเร็จ' : 'ลงเวลาออกงานสำเร็จ') : 'ลงเวลาไม่สำเร็จ';
   t.className = 'res-title ' + (ok ? 'ok' : 'fail');
@@ -433,10 +461,18 @@ function showResult(ok, mode, r) {
 
   if (ok) {
     detail.style.display = 'block';
-    document.getElementById('res-time').textContent = r.time + ' น.';
+    const t2 = isIn ? r.checkIn : r.checkOut;
+    document.getElementById('res-time').textContent = (t2 || '') + ' น.';
     document.getElementById('res-lbl').textContent =
       isIn ? `เวลาเข้างาน · ห่างโรงงาน ${r.distance} ม.` : `เวลาออกงาน · ห่างโรงงาน ${r.distance} ม.`;
-    msg.textContent = !isIn && r.hours ? `รวมเวลาทำงานวันนี้ ${r.hours}` : '';
+    // ข้อความเสริม
+    if (r.noCheckIn) {
+      msg.textContent = '⚠️ ยังไม่มีเวลาเข้า — ขอเพิ่มเวลาเข้าได้ในหน้าประวัติ';
+    } else if (!isIn && r.hours != null && r.hours !== '') {
+      msg.textContent = `รวมเวลาทำงานวันนี้ ${r.hours} ชม.`;
+    } else {
+      msg.textContent = '';
+    }
   } else {
     detail.style.display = 'none';
     msg.textContent = r.error || 'เกิดข้อผิดพลาด';
@@ -449,6 +485,22 @@ function closeResult() {
   // โหลดสถานะใหม่หลังลงเวลาสำเร็จ
   fetch(`${GAS_URL}?action=getAttendanceToday&userId=${U.userId}`)
     .then(r => r.json()).then(a => { _renderStatus(a); _refreshButtons(); }).catch(() => {});
+}
+
+// ── นาฬิกาเดินจริง (เวลาไทย) ──
+function _startClock() {
+  const el = document.getElementById('hdr-clock');
+  function tick() {
+    const now = new Date();
+    // เวลาไทย (UTC+7)
+    const th = new Date(now.getTime() + (now.getTimezoneOffset() + 420) * 60000);
+    const hh = String(th.getHours()).padStart(2, '0');
+    const mm = String(th.getMinutes()).padStart(2, '0');
+    const ss = String(th.getSeconds()).padStart(2, '0');
+    if (el) el.textContent = `${hh}:${mm}:${ss}`;
+  }
+  tick();
+  setInterval(tick, 1000);
 }
 
 init();
